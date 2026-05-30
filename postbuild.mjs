@@ -1,3 +1,4 @@
+@'
 import { cpSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
 
@@ -15,4 +16,5 @@ writeFileSync(
   `import handler from './server/entry.mjs';\nexport default handler;\n`
 );
 
-console.log('✅ Pages output ready in dist/pages/');
+console.log('Pages output ready in dist/pages/');
+'@ | Set-Content postbuild.mjs
