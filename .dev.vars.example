@@ -1,0 +1,4 @@
+# Local development secrets — never commit this file
+# Copy this to .dev.vars and fill in your values
+
+EDEN_AI_KEY=your_eden_ai_key_here
