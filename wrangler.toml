@@ -2,19 +2,3 @@ name = "gradethemright"
 compatibility_date = "2024-12-18"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "./dist"
-
-# R2 bucket for file uploads
-[[r2_buckets]]
-binding = "FILES_BUCKET"
-bucket_name = "gradethemright-files"
-preview_bucket_name = "gradethemright-files-preview"
-
-# D1 database for job results
-[[d1_databases]]
-binding = "DB"
-database_name = "gradethemright-db"
-database_id = "placeholder-replace-after-creation"
-
-# Environment variables (secrets set via dashboard, not here)
-[vars]
-ENVIRONMENT = "production"
