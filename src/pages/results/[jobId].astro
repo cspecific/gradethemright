@@ -1,15 +1,299 @@
 ---
 import Layout from '../../layouts/Layout.astro';
-
 const { jobId } = Astro.params;
 ---
 
-<Layout title="Your Results – GradeThemRight">
-  <div style="text-align:center; padding: 4rem 0;">
-    <div style="font-size:3rem; margin-bottom:1rem;">⏳</div>
-    <h1 style="font-size:1.5rem; color:#fff; margin-bottom:0.75rem;">Grading in progress…</h1>
-    <p style="color:#64748b; margin-bottom:2rem;">Job ID: <code style="color:#818cf8">{jobId}</code></p>
-    <p style="color:#475569; font-size:0.875rem;">AI grading coming in Step 3. Check back soon.</p>
-    <a href="/grade" style="display:inline-block; margin-top:2rem; color:#818cf8; font-size:0.875rem;">← Grade another assignment</a>
+<Layout title="Your Grade – GradeThemRight">
+
+  <!-- Loading -->
+  <div id="s-loading" class="center-state">
+    <div class="spinner"></div>
+    <h1>Grading your assignment…</h1>
+    <p>This usually takes 15–30 seconds. Don't close this tab.</p>
   </div>
+
+  <!-- Error -->
+  <div id="s-error" class="center-state" hidden>
+    <div style="font-size:2.5rem;margin-bottom:1rem">⚠️</div>
+    <h1>Something went wrong</h1>
+    <p id="error-text" style="color:#94a3b8;max-width:480px;margin:0 auto 2rem"></p>
+    <a href="/grade" class="btn-primary">← Try again</a>
+  </div>
+
+  <!-- Results -->
+  <div id="s-result" hidden>
+    <a href="/grade" class="back-link">← Grade another assignment</a>
+
+    <!-- Grade badge -->
+    <div class="grade-hero">
+      <div class="grade-badge" id="grade-badge">
+        <div class="grade-label">Estimated Grade</div>
+        <div class="grade-band" id="r-band"></div>
+        <div class="grade-pct" id="r-pct"></div>
+      </div>
+    </div>
+
+    <!-- Overall feedback -->
+    <div class="card" style="margin-bottom:1rem">
+      <h3>📋 Overall Feedback</h3>
+      <p id="r-overall"></p>
+    </div>
+
+    <!-- Strengths + Improvements -->
+    <div class="two-col">
+      <div class="card">
+        <h3>✅ Strengths</h3>
+        <ul id="r-strengths"></ul>
+      </div>
+      <div class="card">
+        <h3>🔧 Areas for Improvement</h3>
+        <ul id="r-improvements"></ul>
+      </div>
+    </div>
+
+    <!-- Structure + Referencing -->
+    <div class="two-col">
+      <div class="card">
+        <h3>🏗️ Structure & Organisation</h3>
+        <p id="r-structure"></p>
+      </div>
+      <div class="card">
+        <h3>📚 Referencing</h3>
+        <p id="r-referencing"></p>
+      </div>
+    </div>
+
+    <!-- Marking criteria -->
+    <div id="criteria-section" hidden>
+      <h3 style="color:#e2e8f0;font-size:1rem;font-weight:700;margin-bottom:1rem">Marking Criteria Breakdown</h3>
+      <div id="r-criteria"></div>
+    </div>
+
+    <div class="disclaimer">
+      ⚠️ This is an AI-estimated grade for <strong>formative feedback only</strong>. It is not a guarantee of your actual mark and should not be shared as an official assessment.
+    </div>
+  </div>
+
 </Layout>
+
+<script define:vars={{ jobId }}>
+  async function run() {
+    try {
+      const res = await fetch('/api/process/' + jobId, { method: 'POST' });
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        showError(data.error || 'Grading failed. Please try again.');
+        return;
+      }
+
+      showResult(data.result);
+    } catch (err) {
+      showError('Network error. Please check your connection and try again.');
+    }
+  }
+
+  function showError(msg) {
+    document.getElementById('s-loading').hidden = true;
+    document.getElementById('s-error').hidden = false;
+    document.getElementById('error-text').textContent = msg;
+  }
+
+  function showResult(r) {
+    document.getElementById('s-loading').hidden = true;
+    document.getElementById('s-result').hidden = false;
+
+    // Grade badge colour
+    const pct = Number(r.percentage) || 0;
+    const badge = document.getElementById('grade-badge');
+    if (pct >= 70)      badge.classList.add('grade-first');
+    else if (pct >= 60) badge.classList.add('grade-upper');
+    else if (pct >= 50) badge.classList.add('grade-lower');
+    else if (pct >= 40) badge.classList.add('grade-third');
+    else                badge.classList.add('grade-fail');
+
+    document.getElementById('r-band').textContent = r.grade_band || r.grade || '—';
+    document.getElementById('r-pct').textContent  = pct ? pct + '%' : '';
+    document.getElementById('r-overall').textContent     = r.overall_feedback    || '—';
+    document.getElementById('r-structure').textContent   = r.structure_comment   || '—';
+    document.getElementById('r-referencing').textContent = r.referencing_feedback || '—';
+
+    function makeList(elId, items) {
+      const ul = document.getElementById(elId);
+      (items || []).forEach(s => {
+        const li = document.createElement('li');
+        li.textContent = s;
+        ul.appendChild(li);
+      });
+    }
+    makeList('r-strengths', r.strengths);
+    makeList('r-improvements', r.improvements);
+
+    if (r.criteria && r.criteria.length) {
+      document.getElementById('criteria-section').hidden = false;
+      const container = document.getElementById('r-criteria');
+      r.criteria.forEach(c => {
+        const div = document.createElement('div');
+        div.className = 'criterion-row';
+        div.innerHTML = `
+          <div class="crit-top">
+            <span class="crit-name">${c.name}</span>
+            <span class="crit-score">${c.score}</span>
+          </div>
+          <p class="crit-comment">${c.comment}</p>`;
+        container.appendChild(div);
+      });
+    }
+  }
+
+  run();
+</script>
+
+<style>
+  /* Loading / error states */
+  .center-state {
+    text-align: center;
+    padding: 5rem 0;
+  }
+  .center-state h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #f1f5f9;
+    margin-bottom: 0.75rem;
+  }
+  .center-state p { color: #64748b; }
+
+  .spinner {
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 3px solid rgba(99,102,241,0.2);
+    border-top-color: #6366f1;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 1.5rem;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Nav */
+  .back-link {
+    display: inline-block;
+    color: #64748b;
+    text-decoration: none;
+    font-size: 0.875rem;
+    margin-bottom: 2rem;
+    transition: color 0.15s;
+  }
+  .back-link:hover { color: #94a3b8; }
+
+  /* Grade hero */
+  .grade-hero {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 2rem;
+  }
+
+  .grade-badge {
+    text-align: center;
+    padding: 2rem 3rem;
+    border-radius: 1.25rem;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.04);
+    min-width: 200px;
+  }
+
+  .grade-badge.grade-first  { border-color: rgba(34,197,94,0.4);  background: rgba(34,197,94,0.08); }
+  .grade-badge.grade-upper  { border-color: rgba(99,102,241,0.4); background: rgba(99,102,241,0.08); }
+  .grade-badge.grade-lower  { border-color: rgba(234,179,8,0.4);  background: rgba(234,179,8,0.08); }
+  .grade-badge.grade-third  { border-color: rgba(249,115,22,0.4); background: rgba(249,115,22,0.08); }
+  .grade-badge.grade-fail   { border-color: rgba(239,68,68,0.4);  background: rgba(239,68,68,0.08); }
+
+  .grade-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #64748b;
+    margin-bottom: 0.5rem;
+  }
+  .grade-band {
+    font-size: 2.25rem;
+    font-weight: 800;
+    color: #f1f5f9;
+    line-height: 1;
+    margin-bottom: 0.4rem;
+  }
+  .grade-pct {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #94a3b8;
+  }
+
+  /* Cards */
+  .card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 1rem;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+  }
+  .card h3 {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #94a3b8;
+    margin-bottom: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .card p { color: #cbd5e1; font-size: 0.9rem; line-height: 1.7; }
+  .card ul { padding-left: 1.25rem; margin: 0; }
+  .card li { color: #cbd5e1; font-size: 0.875rem; line-height: 1.8; }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  @media (max-width: 640px) { .two-col { grid-template-columns: 1fr; } }
+
+  /* Criteria */
+  .criterion-row {
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 0.75rem;
+    padding: 1rem 1.25rem;
+    margin-bottom: 0.75rem;
+    background: rgba(255,255,255,0.02);
+  }
+  .crit-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.4rem;
+  }
+  .crit-name  { font-size: 0.875rem; font-weight: 600; color: #e2e8f0; }
+  .crit-score { font-size: 0.875rem; font-weight: 700; color: #818cf8; }
+  .crit-comment { font-size: 0.8rem; color: #64748b; margin: 0; line-height: 1.6; }
+
+  /* Disclaimer */
+  .disclaimer {
+    background: rgba(234,179,8,0.07);
+    border: 1px solid rgba(234,179,8,0.2);
+    border-radius: 0.75rem;
+    padding: 1rem 1.25rem;
+    font-size: 0.8rem;
+    color: #a16207;
+    margin: 1.5rem 0;
+    line-height: 1.6;
+  }
+
+  .btn-primary {
+    display: inline-block;
+    background: #6366f1;
+    color: #fff;
+    font-weight: 700;
+    padding: 0.8rem 2rem;
+    border-radius: 0.75rem;
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+</style>
