@@ -1,75 +1,76 @@
 import type { APIRoute } from 'astro';
 
-export const POST: APIRoute = async ({ request, locals }) => {
-  const { FILES_BUCKET, DB } = locals.runtime.env;
+export const POST: APIRoute = async (context) => {
+  const makeError = (msg: string, status = 400) =>
+    new Response(JSON.stringify({ error: msg }), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    });
 
   try {
-    const formData = await request.formData();
+    // Access bindings
+    const env = (context.locals as any).runtime?.env;
+    if (!env) return makeError('Runtime environment not available.', 500);
+
+    const FILES_BUCKET = env.FILES_BUCKET;
+    const DB = env.DB;
+
+    if (!FILES_BUCKET) return makeError('R2 bucket binding missing. Check Cloudflare Pages settings.', 500);
+    if (!DB) return makeError('D1 database binding missing. Check Cloudflare Pages settings.', 500);
+
+    // Parse form data
+    let formData: FormData;
+    try {
+      formData = await context.request.formData();
+    } catch {
+      return makeError('Could not parse form data.', 400);
+    }
+
     const brief = formData.get('brief') as File | null;
     const referencingGuide = formData.get('referencing_guide') as File | null;
     const assignment = formData.get('assignment') as File | null;
     const model = formData.get('model') as string | null;
 
-    // Validate required fields
-    if (!brief || !assignment || !model) {
-      return new Response(JSON.stringify({ error: 'Missing required fields: brief, assignment, and model are all required.' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+    if (!brief || !(brief instanceof File)) return makeError('Assignment brief is required.');
+    if (!assignment || !(assignment instanceof File)) return makeError('Assignment file is required.');
+    if (!model) return makeError('AI model selection is required.');
 
-    // Validate file types
-    const allowed = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-    for (const file of [brief, assignment, ...(referencingGuide ? [referencingGuide] : [])]) {
-      if (!allowed.includes(file.type) && !file.name.match(/\.(pdf|doc|docx)$/i)) {
-        return new Response(JSON.stringify({ error: `Invalid file type: ${file.name}. Only PDF and Word documents are accepted.` }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-    }
-
-    // Validate file sizes (10MB max each)
+    // File size check (10MB)
     const maxSize = 10 * 1024 * 1024;
-    for (const file of [brief, assignment, ...(referencingGuide ? [referencingGuide] : [])]) {
-      if (file.size > maxSize) {
-        return new Response(JSON.stringify({ error: `File too large: ${file.name}. Maximum size is 10MB.` }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
+    for (const file of [brief, assignment, ...(referencingGuide instanceof File ? [referencingGuide] : [])]) {
+      if (file.size > maxSize) return makeError(`File too large: ${file.name}. Max 10MB.`);
     }
 
     // Generate job ID
     const jobId = crypto.randomUUID();
     const timestamp = new Date().toISOString();
 
-    // Upload files to R2
+    // Upload to R2
     const uploadFile = async (file: File, key: string) => {
       const buffer = await file.arrayBuffer();
       await FILES_BUCKET.put(key, buffer, {
-        httpMetadata: { contentType: file.type },
+        httpMetadata: { contentType: file.type || 'application/octet-stream' },
         customMetadata: { originalName: file.name, jobId },
       });
     };
 
     await uploadFile(brief, `${jobId}/brief/${brief.name}`);
     await uploadFile(assignment, `${jobId}/assignment/${assignment.name}`);
-    if (referencingGuide) {
+    if (referencingGuide instanceof File) {
       await uploadFile(referencingGuide, `${jobId}/referencing/${referencingGuide.name}`);
     }
 
-    // Create job record in D1
-    await DB.prepare(`
-      INSERT INTO jobs (id, status, model, brief_name, assignment_name, ref_guide_name, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).bind(
+    // Insert job into D1
+    await DB.prepare(
+      `INSERT INTO jobs (id, status, model, brief_name, assignment_name, ref_guide_name, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
       jobId,
       'pending',
       model,
       brief.name,
       assignment.name,
-      referencingGuide?.name ?? null,
+      referencingGuide instanceof File ? referencingGuide.name : null,
       timestamp
     ).run();
 
@@ -78,9 +79,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
       headers: { 'Content-Type': 'application/json' },
     });
 
-  } catch (err) {
+  } catch (err: any) {
     console.error('Grade API error:', err);
-    return new Response(JSON.stringify({ error: 'An unexpected error occurred. Please try again.' }), {
+    return new Response(JSON.stringify({ error: err?.message ?? 'Unexpected error. Please try again.' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
