@@ -3,16 +3,138 @@ import Layout from '../layouts/Layout.astro';
 ---
 
 <Layout>
-  <div class="text-center mb-12">
-    <h1 class="text-4xl font-bold text-white mb-4">
-      Get your assignment graded <span class="text-indigo-400">before you submit</span>
-    </h1>
-    <p class="text-gray-400 text-lg max-w-xl mx-auto">
-      Upload your brief, your work, pick an AI — get structured feedback and an estimated grade in seconds.
-    </p>
+  <div class="hero">
+    <div class="hero-badge">AI-powered • Instant feedback</div>
+    <h1>Know your grade<br/><span class="accent">before you submit</span></h1>
+    <p class="subtitle">Upload your brief, your work, pick an AI model — get structured feedback and an estimated grade in under a minute.</p>
+    <a href="/grade" class="cta-btn">Start grading →</a>
   </div>
 
-  <div class="bg-white/5 border border-white/10 rounded-2xl p-8 text-center text-gray-500">
-    Upload flow coming in Step 2 →
+  <div class="steps-row">
+    <div class="step">
+      <div class="step-num">01</div>
+      <div class="step-text">Upload your assignment brief</div>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <div class="step-num">02</div>
+      <div class="step-text">Upload your assignment</div>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <div class="step-num">03</div>
+      <div class="step-text">Pick an AI model</div>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <div class="step-num">04</div>
+      <div class="step-text">Get feedback + grade</div>
+    </div>
+  </div>
+
+  <div class="disclaimer">
+    Grades are estimated for formative use only — not a guarantee of your final mark.
   </div>
 </Layout>
+
+<style>
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+  }
+
+  .hero-badge {
+    display: inline-block;
+    background: rgba(99,102,241,0.15);
+    color: #a5b4fc;
+    border: 1px solid rgba(99,102,241,0.3);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.35rem 1rem;
+    margin-bottom: 2rem;
+  }
+
+  h1 {
+    font-size: clamp(2.5rem, 6vw, 4rem);
+    font-weight: 800;
+    line-height: 1.1;
+    color: #fff;
+    margin-bottom: 1.5rem;
+    letter-spacing: -0.02em;
+  }
+
+  .accent {
+    color: #818cf8;
+  }
+
+  .subtitle {
+    font-size: 1.125rem;
+    color: #94a3b8;
+    max-width: 520px;
+    margin: 0 auto 2.5rem;
+    line-height: 1.7;
+  }
+
+  .cta-btn {
+    display: inline-block;
+    background: #6366f1;
+    color: #fff;
+    font-weight: 700;
+    font-size: 1rem;
+    padding: 0.875rem 2.25rem;
+    border-radius: 0.75rem;
+    text-decoration: none;
+    transition: background 0.15s, transform 0.15s;
+  }
+
+  .cta-btn:hover {
+    background: #4f46e5;
+    transform: translateY(-1px);
+  }
+
+  .steps-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 4rem;
+  }
+
+  .step {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 1rem;
+    padding: 1.25rem 1.5rem;
+    text-align: center;
+    min-width: 140px;
+  }
+
+  .step-num {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #6366f1;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.5rem;
+  }
+
+  .step-text {
+    font-size: 0.85rem;
+    color: #cbd5e1;
+    font-weight: 500;
+  }
+
+  .step-arrow {
+    color: #334155;
+    font-size: 1.25rem;
+  }
+
+  .disclaimer {
+    text-align: center;
+    font-size: 0.75rem;
+    color: #475569;
+  }
+</style>

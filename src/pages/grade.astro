@@ -1,0 +1,679 @@
+---
+import Layout from '../layouts/Layout.astro';
+
+const AI_MODELS = [
+  { id: 'openai/gpt-4o', name: 'GPT-4o', provider: 'OpenAI', description: 'Best overall reasoning' },
+  { id: 'anthropic/claude-sonnet-4-5', name: 'Claude Sonnet', provider: 'Anthropic', description: 'Detailed written feedback' },
+  { id: 'google/gemini-2-0-flash', name: 'Gemini Flash', provider: 'Google', description: 'Fast and thorough' },
+];
+---
+
+<Layout title="Grade My Assignment – GradeThemRight">
+  <div class="page-header">
+    <a href="/" class="back-link">← Back</a>
+    <h1>Grade my assignment</h1>
+    <p>Follow the steps below. All fields marked * are required.</p>
+  </div>
+
+  <!-- Step indicators -->
+  <div class="step-indicators" id="step-indicators">
+    <div class="indicator active" data-step="1"><span>1</span> Brief</div>
+    <div class="indicator-line"></div>
+    <div class="indicator" data-step="2"><span>2</span> Assignment</div>
+    <div class="indicator-line"></div>
+    <div class="indicator" data-step="3"><span>3</span> AI Model</div>
+    <div class="indicator-line"></div>
+    <div class="indicator" data-step="4"><span>4</span> Review</div>
+  </div>
+
+  <form id="grade-form" enctype="multipart/form-data">
+
+    <!-- Step 1: Brief + Referencing Guide -->
+    <div class="step-panel active" data-panel="1">
+      <div class="panel-title">
+        <div class="panel-num">01</div>
+        <div>
+          <h2>Upload your assignment brief *</h2>
+          <p>The brief tells the AI what you were asked to do and how it will be marked.</p>
+        </div>
+      </div>
+
+      <div class="upload-zone" id="brief-zone">
+        <input type="file" name="brief" id="brief-input" accept=".pdf,.doc,.docx" required hidden />
+        <div class="upload-icon">📄</div>
+        <div class="upload-label">Drop your brief here or <button type="button" class="upload-browse" onclick="document.getElementById('brief-input').click()">browse</button></div>
+        <div class="upload-hint">PDF or Word document</div>
+        <div class="file-selected" id="brief-selected"></div>
+      </div>
+
+      <div class="optional-section">
+        <div class="optional-header">
+          <span>Referencing guide</span>
+          <span class="optional-badge">Optional</span>
+        </div>
+        <p class="optional-desc">Upload your institution's referencing guide (e.g. Harvard, APA) for more precise feedback on your citations.</p>
+        <div class="upload-zone small" id="ref-zone">
+          <input type="file" name="referencing_guide" id="ref-input" accept=".pdf,.doc,.docx" hidden />
+          <div class="upload-label">Drop referencing guide or <button type="button" class="upload-browse" onclick="document.getElementById('ref-input').click()">browse</button></div>
+          <div class="file-selected" id="ref-selected"></div>
+        </div>
+      </div>
+
+      <div class="step-nav">
+        <div></div>
+        <button type="button" class="btn-next" onclick="goToStep(2)">Continue →</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Assignment -->
+    <div class="step-panel" data-panel="2">
+      <div class="panel-title">
+        <div class="panel-num">02</div>
+        <div>
+          <h2>Upload your assignment *</h2>
+          <p>The work you want graded. Make sure it's your final or near-final draft.</p>
+        </div>
+      </div>
+
+      <div class="upload-zone large" id="assignment-zone">
+        <input type="file" name="assignment" id="assignment-input" accept=".pdf,.doc,.docx" required hidden />
+        <div class="upload-icon">📝</div>
+        <div class="upload-label">Drop your assignment here or <button type="button" class="upload-browse" onclick="document.getElementById('assignment-input').click()">browse</button></div>
+        <div class="upload-hint">PDF or Word document • Max 10MB</div>
+        <div class="file-selected" id="assignment-selected"></div>
+      </div>
+
+      <div class="step-nav">
+        <button type="button" class="btn-back" onclick="goToStep(1)">← Back</button>
+        <button type="button" class="btn-next" onclick="goToStep(3)">Continue →</button>
+      </div>
+    </div>
+
+    <!-- Step 3: AI Model -->
+    <div class="step-panel" data-panel="3">
+      <div class="panel-title">
+        <div class="panel-num">03</div>
+        <div>
+          <h2>Choose an AI model *</h2>
+          <p>Each model has slightly different strengths. Try different ones and compare.</p>
+        </div>
+      </div>
+
+      <div class="model-grid">
+        {AI_MODELS.map((model) => (
+          <label class="model-card" data-model-id={model.id}>
+            <input type="radio" name="model" value={model.id} hidden />
+            <div class="model-provider">{model.provider}</div>
+            <div class="model-name">{model.name}</div>
+            <div class="model-desc">{model.description}</div>
+            <div class="model-check">✓</div>
+          </label>
+        ))}
+      </div>
+
+      <div class="step-nav">
+        <button type="button" class="btn-back" onclick="goToStep(2)">← Back</button>
+        <button type="button" class="btn-next" onclick="goToStep(4)">Continue →</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Review & Submit -->
+    <div class="step-panel" data-panel="4">
+      <div class="panel-title">
+        <div class="panel-num">04</div>
+        <div>
+          <h2>Review & submit</h2>
+          <p>Check everything looks right before we send it to the AI.</p>
+        </div>
+      </div>
+
+      <div class="review-card">
+        <div class="review-row">
+          <span class="review-label">Brief</span>
+          <span class="review-value" id="review-brief">—</span>
+        </div>
+        <div class="review-row">
+          <span class="review-label">Referencing guide</span>
+          <span class="review-value" id="review-ref">Not provided</span>
+        </div>
+        <div class="review-row">
+          <span class="review-label">Assignment</span>
+          <span class="review-value" id="review-assignment">—</span>
+        </div>
+        <div class="review-row">
+          <span class="review-label">AI model</span>
+          <span class="review-value" id="review-model">—</span>
+        </div>
+      </div>
+
+      <div class="disclaimer-box">
+        ⚠️ Grades are <strong>estimated</strong> for formative feedback only. This is not a guarantee of your final mark and should not be submitted as your own work.
+      </div>
+
+      <div class="step-nav">
+        <button type="button" class="btn-back" onclick="goToStep(3)">← Back</button>
+        <button type="submit" class="btn-submit" id="submit-btn">
+          <span id="submit-label">Get my grade →</span>
+          <span id="submit-loading" hidden>Grading… this takes ~30 seconds</span>
+        </button>
+      </div>
+
+      <div class="error-msg" id="error-msg"></div>
+    </div>
+
+  </form>
+</Layout>
+
+<style>
+  .page-header {
+    margin-bottom: 2.5rem;
+  }
+
+  .back-link {
+    color: #64748b;
+    text-decoration: none;
+    font-size: 0.875rem;
+    display: inline-block;
+    margin-bottom: 1rem;
+    transition: color 0.15s;
+  }
+
+  .back-link:hover { color: #94a3b8; }
+
+  h1 {
+    font-size: 2rem;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.4rem;
+  }
+
+  .page-header p {
+    color: #64748b;
+    font-size: 0.9rem;
+  }
+
+  /* Step indicators */
+  .step-indicators {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 2.5rem;
+  }
+
+  .indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #475569;
+    padding: 0.5rem 0;
+    transition: color 0.2s;
+  }
+
+  .indicator span {
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    transition: all 0.2s;
+  }
+
+  .indicator.active {
+    color: #a5b4fc;
+  }
+
+  .indicator.active span {
+    background: #6366f1;
+    border-color: #6366f1;
+    color: #fff;
+  }
+
+  .indicator.done span {
+    background: #22c55e;
+    border-color: #22c55e;
+    color: #fff;
+  }
+
+  .indicator-line {
+    flex: 1;
+    height: 1px;
+    background: rgba(255,255,255,0.08);
+    margin: 0 0.75rem;
+  }
+
+  /* Step panels */
+  .step-panel {
+    display: none;
+  }
+
+  .step-panel.active {
+    display: block;
+  }
+
+  .panel-title {
+    display: flex;
+    gap: 1.25rem;
+    align-items: flex-start;
+    margin-bottom: 1.75rem;
+  }
+
+  .panel-num {
+    font-size: 0.7rem;
+    font-weight: 800;
+    color: #6366f1;
+    letter-spacing: 0.1em;
+    padding-top: 0.25rem;
+    flex-shrink: 0;
+  }
+
+  .panel-title h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #f1f5f9;
+    margin-bottom: 0.3rem;
+  }
+
+  .panel-title p {
+    font-size: 0.875rem;
+    color: #64748b;
+  }
+
+  /* Upload zones */
+  .upload-zone {
+    border: 2px dashed rgba(99,102,241,0.3);
+    border-radius: 1rem;
+    padding: 2.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    margin-bottom: 1.5rem;
+    background: rgba(99,102,241,0.03);
+  }
+
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: #6366f1;
+    background: rgba(99,102,241,0.07);
+  }
+
+  .upload-zone.has-file {
+    border-color: #22c55e;
+    background: rgba(34,197,94,0.05);
+  }
+
+  .upload-zone.large { padding: 3.5rem 2.5rem; }
+  .upload-zone.small { padding: 1.5rem 2rem; }
+
+  .upload-icon { font-size: 2rem; margin-bottom: 0.75rem; }
+  .upload-zone.small .upload-icon { display: none; }
+
+  .upload-label {
+    font-size: 0.9rem;
+    color: #94a3b8;
+    margin-bottom: 0.35rem;
+  }
+
+  .upload-hint {
+    font-size: 0.75rem;
+    color: #475569;
+  }
+
+  .upload-browse {
+    background: none;
+    border: none;
+    color: #818cf8;
+    cursor: pointer;
+    font-size: inherit;
+    font-weight: 600;
+    padding: 0;
+    text-decoration: underline;
+  }
+
+  .file-selected {
+    margin-top: 0.75rem;
+    font-size: 0.8rem;
+    color: #22c55e;
+    font-weight: 600;
+  }
+
+  /* Optional section */
+  .optional-section {
+    margin-bottom: 1.5rem;
+  }
+
+  .optional-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #94a3b8;
+  }
+
+  .optional-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 999px;
+    padding: 0.2rem 0.6rem;
+    color: #64748b;
+  }
+
+  .optional-desc {
+    font-size: 0.8rem;
+    color: #475569;
+    margin-bottom: 0.75rem;
+  }
+
+  /* Model grid */
+  .model-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .model-card {
+    position: relative;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 1rem;
+    padding: 1.5rem;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    background: rgba(255,255,255,0.03);
+  }
+
+  .model-card:hover {
+    border-color: rgba(99,102,241,0.4);
+    background: rgba(99,102,241,0.05);
+  }
+
+  .model-card.selected {
+    border-color: #6366f1;
+    background: rgba(99,102,241,0.1);
+  }
+
+  .model-provider {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #6366f1;
+    margin-bottom: 0.4rem;
+  }
+
+  .model-name {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #f1f5f9;
+    margin-bottom: 0.4rem;
+  }
+
+  .model-desc {
+    font-size: 0.8rem;
+    color: #64748b;
+  }
+
+  .model-check {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    background: #6366f1;
+    color: #fff;
+    font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .model-card.selected .model-check { opacity: 1; }
+
+  /* Review card */
+  .review-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 1rem;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+  }
+
+  .review-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.9rem 1.25rem;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .review-row:last-child { border-bottom: none; }
+
+  .review-label {
+    font-size: 0.8rem;
+    color: #64748b;
+    font-weight: 500;
+  }
+
+  .review-value {
+    font-size: 0.85rem;
+    color: #e2e8f0;
+    font-weight: 500;
+    max-width: 60%;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Disclaimer */
+  .disclaimer-box {
+    background: rgba(234,179,8,0.08);
+    border: 1px solid rgba(234,179,8,0.2);
+    border-radius: 0.75rem;
+    padding: 1rem 1.25rem;
+    font-size: 0.8rem;
+    color: #ca8a04;
+    margin-bottom: 1.5rem;
+    line-height: 1.6;
+  }
+
+  /* Navigation */
+  .step-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 2rem;
+  }
+
+  .btn-next, .btn-submit {
+    background: #6366f1;
+    color: #fff;
+    border: none;
+    border-radius: 0.75rem;
+    padding: 0.8rem 2rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.15s;
+  }
+
+  .btn-next:hover, .btn-submit:hover {
+    background: #4f46e5;
+    transform: translateY(-1px);
+  }
+
+  .btn-submit:disabled {
+    background: #334155;
+    color: #64748b;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .btn-back {
+    background: transparent;
+    color: #64748b;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 0.75rem;
+    padding: 0.8rem 1.5rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+
+  .btn-back:hover {
+    color: #94a3b8;
+    border-color: rgba(255,255,255,0.2);
+  }
+
+  .error-msg {
+    margin-top: 1rem;
+    color: #f87171;
+    font-size: 0.85rem;
+    text-align: center;
+  }
+</style>
+
+<script>
+  let currentStep = 1;
+
+  // File input → display filename + zone state
+  function wireFileInput(inputId, selectedId, zoneId) {
+    const input = document.getElementById(inputId);
+    const selected = document.getElementById(selectedId);
+    const zone = document.getElementById(zoneId);
+
+    input.addEventListener('change', () => {
+      const file = input.files[0];
+      if (file) {
+        selected.textContent = '✓ ' + file.name;
+        zone.classList.add('has-file');
+        updateReview();
+      }
+    });
+
+    // Drag and drop
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file) {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        selected.textContent = '✓ ' + file.name;
+        zone.classList.add('has-file');
+        updateReview();
+      }
+    });
+  }
+
+  wireFileInput('brief-input', 'brief-selected', 'brief-zone');
+  wireFileInput('ref-input', 'ref-selected', 'ref-zone');
+  wireFileInput('assignment-input', 'assignment-selected', 'assignment-zone');
+
+  // Model selection
+  document.querySelectorAll('.model-card').forEach(card => {
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.model-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      card.querySelector('input[type=radio]').checked = true;
+      updateReview();
+    });
+  });
+
+  // Update review panel
+  function updateReview() {
+    const brief = document.getElementById('brief-input').files[0];
+    const ref = document.getElementById('ref-input').files[0];
+    const assignment = document.getElementById('assignment-input').files[0];
+    const model = document.querySelector('.model-card.selected');
+
+    document.getElementById('review-brief').textContent = brief ? brief.name : '—';
+    document.getElementById('review-ref').textContent = ref ? ref.name : 'Not provided';
+    document.getElementById('review-assignment').textContent = assignment ? assignment.name : '—';
+    document.getElementById('review-model').textContent = model ? model.querySelector('.model-name').textContent + ' (' + model.querySelector('.model-provider').textContent + ')' : '—';
+  }
+
+  // Step navigation
+  window.goToStep = function(step) {
+    // Validate before moving forward
+    if (step > currentStep) {
+      if (currentStep === 1 && !document.getElementById('brief-input').files[0]) {
+        alert('Please upload your assignment brief first.');
+        return;
+      }
+      if (currentStep === 2 && !document.getElementById('assignment-input').files[0]) {
+        alert('Please upload your assignment first.');
+        return;
+      }
+      if (currentStep === 3 && !document.querySelector('.model-card.selected')) {
+        alert('Please select an AI model.');
+        return;
+      }
+    }
+
+    // Update panels
+    document.querySelectorAll('.step-panel').forEach(p => p.classList.remove('active'));
+    document.querySelector('[data-panel="' + step + '"]').classList.add('active');
+
+    // Update indicators
+    document.querySelectorAll('.indicator').forEach(ind => {
+      const s = parseInt(ind.dataset.step);
+      ind.classList.remove('active', 'done');
+      if (s === step) ind.classList.add('active');
+      if (s < step) ind.classList.add('done');
+    });
+
+    currentStep = step;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    if (step === 4) updateReview();
+  };
+
+  // Form submission
+  document.getElementById('grade-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const btn = document.getElementById('submit-btn');
+    const label = document.getElementById('submit-label');
+    const loading = document.getElementById('submit-loading');
+    const errorMsg = document.getElementById('error-msg');
+
+    btn.disabled = true;
+    label.hidden = true;
+    loading.hidden = false;
+    errorMsg.textContent = '';
+
+    try {
+      const formData = new FormData(e.target);
+      const res = await fetch('/api/grade', { method: 'POST', body: formData });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || 'Something went wrong');
+
+      window.location.href = '/results/' + data.jobId;
+    } catch (err) {
+      errorMsg.textContent = err.message;
+      btn.disabled = false;
+      label.hidden = false;
+      loading.hidden = true;
+    }
+  });
+</script>
