@@ -9,23 +9,23 @@ async function extractDocxText(buffer: ArrayBuffer): Promise<string> {
   while (pos < bytes.length - 30) {
     if (bytes[pos]===0x50&&bytes[pos+1]===0x4B&&bytes[pos+2]===0x03&&bytes[pos+3]===0x04) {
       const compression = bytes[pos+8]|(bytes[pos+9]<<8);
-      const compSz = bytes[pos+18]|(bytes[pos+19]<<8)|(bytes[pos+20]<<16)|(bytes[pos+21]<<24);
-      const fnLen  = bytes[pos+26]|(bytes[pos+27]<<8);
-      const exLen  = bytes[pos+28]|(bytes[pos+29]<<8);
-      const fname  = new TextDecoder().decode(bytes.slice(pos+30, pos+30+fnLen));
-      const dStart = pos+30+fnLen+exLen;
-      if (fname === 'word/document.xml') {
-        const compressed = bytes.slice(dStart, dStart+compSz);
+      const compSz  = bytes[pos+18]|(bytes[pos+19]<<8)|(bytes[pos+20]<<16)|(bytes[pos+21]<<24);
+      const fnLen   = bytes[pos+26]|(bytes[pos+27]<<8);
+      const exLen   = bytes[pos+28]|(bytes[pos+29]<<8);
+      const fname   = new TextDecoder().decode(bytes.slice(pos+30,pos+30+fnLen));
+      const dStart  = pos+30+fnLen+exLen;
+      if (fname==='word/document.xml') {
+        const compressed = bytes.slice(dStart,dStart+compSz);
         try {
           let xml: string;
           if (compression===0) { xml=new TextDecoder().decode(compressed); }
           else {
             const ds=new DecompressionStream('deflate-raw');
-            const w=ds.writable.getWriter(), r=ds.readable.getReader();
+            const w=ds.writable.getWriter(),r=ds.readable.getReader();
             await w.write(compressed); await w.close();
-            const chunks: Uint8Array[]=[];let total=0;
+            const chunks:Uint8Array[]=[]; let total=0;
             while(true){const{done,value}=await r.read();if(done)break;chunks.push(value);total+=value.length;}
-            const out=new Uint8Array(total);let off=0;
+            const out=new Uint8Array(total); let off=0;
             for(const c of chunks){out.set(c,off);off+=c.length;}
             xml=new TextDecoder().decode(out);
           }
@@ -38,139 +38,157 @@ async function extractDocxText(buffer: ArrayBuffer): Promise<string> {
   return '';
 }
 
-// ─── PDF: FlateDecode extraction (free, works for most digital PDFs) ──────────
+// ─── PDF: local FlateDecode attempt ──────────────────────────────────────────
 
 async function extractPdfTextLocal(buffer: ArrayBuffer): Promise<string> {
   const bytes = new Uint8Array(buffer);
   const raw   = new TextDecoder('latin1').decode(bytes);
   const parts: string[] = [];
+  let pos = 0;
 
-  // Find compressed streams and decompress them
-  const streamRe = /stream\r?\n/g;
-  let sm: RegExpExecArray | null;
-  while ((sm = streamRe.exec(raw)) !== null) {
-    const sStart = sm.index + sm[0].length;
-    const header = raw.slice(Math.max(0, sm.index - 600), sm.index);
-    const eEnd   = raw.indexOf('endstream', sStart);
-    if (eEnd < 0) continue;
+  while (pos < raw.length) {
+    const si = raw.indexOf('stream', pos);
+    if (si < 0) break;
+    let sStart = -1;
+    if (raw[si+6]==='\n') sStart=si+7;
+    else if (raw[si+6]==='\r'&&raw[si+7]==='\n') sStart=si+8;
+    if (sStart<0) { pos=si+1; continue; }
 
-    const streamBytes = bytes.slice(sStart, eEnd);
+    const ei = raw.indexOf('endstream', sStart);
+    if (ei<0) break;
+
+    const header = raw.slice(Math.max(0,si-1000),si);
+    const isFlate = /FlateDecode|\/Fl[\s/\]>]/.test(header);
+    const streamBytes = bytes.slice(sStart, ei);
     let content = '';
 
-    if (header.includes('FlateDecode') || header.includes('/Fl\n') || header.includes('/Fl ')) {
-      try {
-        // Try deflate first, then deflate-raw
-        for (const fmt of ['deflate', 'deflate-raw'] as const) {
-          try {
-            const ds = new DecompressionStream(fmt);
-            const w = ds.writable.getWriter(), r = ds.readable.getReader();
-            await w.write(streamBytes); await w.close();
-            const chunks: Uint8Array[] = []; let total = 0;
-            while (true) { const {done,value}=await r.read(); if(done)break; chunks.push(value); total+=value.length; }
-            const out = new Uint8Array(total); let off = 0;
-            for (const c of chunks) { out.set(c,off); off+=c.length; }
-            content = new TextDecoder('latin1').decode(out);
-            break;
-          } catch { continue; }
-        }
-      } catch { /* skip */ }
+    if (isFlate) {
+      for (const fmt of ['deflate','deflate-raw'] as const) {
+        try {
+          const ds=new DecompressionStream(fmt);
+          const w=ds.writable.getWriter(),r=ds.readable.getReader();
+          await w.write(streamBytes.slice()); await w.close();
+          const chunks:Uint8Array[]=[]; let total=0;
+          while(true){const{done,value}=await r.read();if(done)break;chunks.push(value);total+=value.length;}
+          const out=new Uint8Array(total); let off=0;
+          for(const c of chunks){out.set(c,off);off+=c.length;}
+          content=new TextDecoder('latin1').decode(out);
+          break;
+        } catch { continue; }
+      }
     } else {
-      content = raw.slice(sStart, eEnd);
+      content = raw.slice(sStart, ei);
     }
 
-    if (!content) continue;
-
-    // Extract Tj / TJ operators
-    const tj    = /\(([^)\\]*(?:\\.[^)\\]*)*)\)\s*Tj/g;
-    const tjArr = /\[([^\]]*)\]\s*TJ/g;
-    let m: RegExpExecArray | null;
-    while ((m = tj.exec(content))    !== null) parts.push(m[1].replace(/\\n/g,' ').replace(/\\\(/g,'(').replace(/\\\)/g,')').replace(/\\\\/g,'\\'));
-    while ((m = tjArr.exec(content)) !== null) {
-      const items = m[1].match(/\(([^)\\]*(?:\\.[^)\\]*)*)\)/g)||[];
-      for (const it of items) parts.push(it.slice(1,-1));
+    if (content) {
+      const tj    = /\(([^)\\]*(?:\\.[^)\\]*)*)\)\s*Tj/g;
+      const tjArr = /\[([^\]]*)\]\s*TJ/g;
+      let m: RegExpExecArray|null;
+      while ((m=tj.exec(content))    !==null) { const t=m[1].replace(/\\n/g,' ').replace(/\\\(/g,'(').replace(/\\\)/g,')').replace(/\\\\/g,'\\'); if(/[a-zA-Z0-9]/.test(t)) parts.push(t); }
+      while ((m=tjArr.exec(content)) !==null) { const items=m[1].match(/\(([^)\\]*(?:\\.[^)\\]*)*)\)/g)||[]; for(const it of items){const t=it.slice(1,-1);if(/[a-zA-Z0-9]/.test(t))parts.push(t);} }
     }
+    pos = ei+9;
   }
-
   return parts.join(' ').replace(/\s+/g,' ').trim().slice(0,20000);
 }
 
-// ─── PDF: Eden AI OCR fallback ────────────────────────────────────────────────
+// ─── Eden AI helpers ──────────────────────────────────────────────────────────
 
-async function extractPdfTextViaOCR(buffer: ArrayBuffer, filename: string, apiKey: string): Promise<string> {
-  const form = new FormData();
-  form.append('providers', 'amazon,microsoft');
-  form.append('language', 'en');
-  form.append('file', new Blob([buffer], { type: 'application/pdf' }), filename);
-
-  const res  = await fetch('https://api.edenai.run/v2/ocr/ocr', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}` },
-    body: form,
-  });
-
-  const raw = await res.text();
-  if (!res.ok) throw new Error(`OCR HTTP ${res.status}: ${raw.slice(0,200)}`);
-
-  let data: Record<string,any>;
-  try { data = JSON.parse(raw); } catch { throw new Error(`OCR bad JSON: ${raw.slice(0,200)}`); }
-
-  const errors: string[] = [];
-  for (const p of ['amazon','microsoft','google','api4ai']) {
-    const pr = data[p];
-    if (pr?.status==='success' && pr?.text?.trim()) return (pr.text as string).slice(0,20000);
-    if (pr?.status==='fail')   errors.push(`${p}: ${pr?.error?.message||'unknown'}`);
-  }
-
-  throw new Error(errors.length ? `OCR providers failed — ${errors.join('; ')}` : 'OCR returned no text');
-}
-
-// ─── Main text extractor ──────────────────────────────────────────────────────
-
-async function extractText(buffer: ArrayBuffer, filename: string, apiKey: string): Promise<string> {
-  const lower = filename.toLowerCase();
-
-  if (lower.endsWith('.docx')) return extractDocxText(buffer);
-
-  if (lower.endsWith('.pdf')) {
-    // Try local extraction first (free + fast)
-    const local = await extractPdfTextLocal(buffer);
-    if (local.length > 100) return local;
-    // Fall back to Eden AI OCR
-    return extractPdfTextViaOCR(buffer, filename, apiKey);
-  }
-
-  return new TextDecoder('utf-8',{fatal:false}).decode(buffer).slice(0,20000);
-}
-
-// ─── Eden AI chat ─────────────────────────────────────────────────────────────
-
-function buildPrompt(brief: string, assignment: string, refGuide?: string): string {
-  return `ASSIGNMENT BRIEF:\n${brief.slice(0,5000)}\n\n${refGuide?`REFERENCING GUIDE:\n${refGuide.slice(0,2000)}\n\n`:''}STUDENT ASSIGNMENT:\n${assignment.slice(0,8000)}\n\nAssess this student assignment against the brief. Return ONLY valid JSON:\n{\n  "grade": "2:1 (65%)",\n  "grade_band": "2:1",\n  "percentage": 65,\n  "overall_feedback": "2-3 sentence overview",\n  "strengths": ["s1","s2","s3"],\n  "improvements": ["i1","i2","i3"],\n  "referencing_feedback": "comment",\n  "structure_comment": "comment",\n  "criteria": [{"name":"criterion","score":"65%","comment":"comment"}]\n}\nUK grades: First 70%+, 2:1 60-69%, 2:2 50-59%, Third 40-49%, Fail <40%.`;
-}
-
-async function callEdenAI(prompt: string, modelId: string, apiKey: string): Promise<string> {
+function parseModel(modelId: string): { provider: string; model: string } {
   const [provider, ...rest] = modelId.split('/');
-  const model = rest.join('/');
-  const body: Record<string,unknown> = {
-    providers: provider,
-    text: prompt,
-    chatbot_global_action: 'You are an expert academic assessor. Return ONLY valid JSON.',
-    temperature: 0.3,
-    max_tokens: 2000,
-  };
-  if (model) body.settings = { [provider]: model };
+  return { provider, model: rest.join('/') };
+}
 
-  const res = await fetch('https://api.edenai.run/v2/text/chat', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+async function edenChat(
+  provider: string, model: string, apiKey: string,
+  userText: string, system: string,
+  fileBuf?: ArrayBuffer, fileName?: string,
+  maxTokens = 2000
+): Promise<string> {
+  // Use multipart when file is attached so the model can read it natively
+  let res: Response;
 
-  if (!res.ok) throw new Error(`Eden AI chat ${res.status}: ${(await res.text()).slice(0,200)}`);
+  if (fileBuf && fileName) {
+    const form = new FormData();
+    form.append('providers', provider);
+    form.append('text', userText);
+    form.append('chatbot_global_action', system);
+    form.append('temperature', '0.3');
+    form.append('max_tokens', String(maxTokens));
+    if (model) form.append('settings', JSON.stringify({ [provider]: model }));
+    const mime = fileName.toLowerCase().endsWith('.pdf') ? 'application/pdf'
+               : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    form.append('file', new Blob([fileBuf], { type: mime }), fileName);
+    res = await fetch('https://api.edenai.run/v2/text/chat', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+      body: form,
+    });
+  } else {
+    const body: Record<string,unknown> = {
+      providers: provider, text: userText,
+      chatbot_global_action: system, temperature: 0.3, max_tokens: maxTokens,
+    };
+    if (model) body.settings = { [provider]: model };
+    res = await fetch('https://api.edenai.run/v2/text/chat', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  if (!res.ok) throw new Error(`Eden AI ${res.status}: ${(await res.text()).slice(0,200)}`);
   const data = await res.json() as Record<string,any>;
   const pr = data[provider];
-  if (!pr || pr.status!=='success') throw new Error(`Provider error: ${JSON.stringify(pr).slice(0,200)}`);
+  if (!pr || pr.status!=='success') throw new Error(`Provider ${provider} error: ${JSON.stringify(pr).slice(0,200)}`);
   return pr.generated_text ?? '';
+}
+
+const GRADE_JSON = `{
+  "grade": "2:1 (65%)",
+  "grade_band": "2:1",
+  "percentage": 65,
+  "overall_feedback": "2-3 sentence overview",
+  "strengths": ["s1","s2","s3"],
+  "improvements": ["i1","i2","i3"],
+  "referencing_feedback": "comment on referencing",
+  "structure_comment": "comment on structure",
+  "criteria": [{"name":"criterion","score":"65%","comment":"comment"}]
+}`;
+
+const SYSTEM = 'You are an expert academic assessor at a UK university. Return ONLY valid JSON with no markdown or preamble.';
+
+// ─── Grade: text-based (DOCX or successful PDF extraction) ───────────────────
+
+async function gradeFromText(
+  briefText: string, assignText: string, refText: string|undefined,
+  modelId: string, apiKey: string
+): Promise<string> {
+  const { provider, model } = parseModel(modelId);
+  const prompt = `ASSIGNMENT BRIEF:\n${briefText.slice(0,5000)}\n\n${refText?`REFERENCING GUIDE:\n${refText.slice(0,2000)}\n\n`:''}STUDENT ASSIGNMENT:\n${assignText.slice(0,8000)}\n\nAssess this assignment. Return ONLY this JSON:\n${GRADE_JSON}\nUK grades: First 70%+, 2:1 60-69%, 2:2 50-59%, Third 40-49%, Fail <40%.`;
+  return edenChat(provider, model, apiKey, prompt, SYSTEM);
+}
+
+// ─── Grade: file-based (PDF that resists local extraction) ───────────────────
+
+async function gradeFromFiles(
+  briefBuf: ArrayBuffer, briefName: string,
+  assignBuf: ArrayBuffer, assignName: string,
+  modelId: string, apiKey: string
+): Promise<string> {
+  const { provider, model } = parseModel(modelId);
+
+  // Call 1: read brief
+  const briefSummary = await edenChat(
+    provider, model, apiKey,
+    'Read this assignment brief and extract: marking criteria, learning outcomes, word count, any specific requirements. Be thorough.',
+    'You are an academic assistant. Extract key information from the provided document.',
+    briefBuf, briefName, 800
+  );
+
+  // Call 2: grade assignment using brief summary
+  const gradePrompt = `Assignment requirements:\n${briefSummary}\n\nNow read and grade the attached student assignment. Return ONLY this JSON:\n${GRADE_JSON}\nUK grades: First 70%+, 2:1 60-69%, 2:2 50-59%, Third 40-49%, Fail <40%.`;
+  return edenChat(provider, model, apiKey, gradePrompt, SYSTEM, assignBuf, assignName);
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
@@ -203,34 +221,59 @@ export const POST: APIRoute = async (context) => {
       FILES_BUCKET.get(`${jobId}/assignment/${job.assignment_name}`),
     ]);
     if (!briefObj||!assignObj) {
-      await DB.prepare("UPDATE jobs SET status='error',error_message='Files missing' WHERE id=?").bind(jobId).run();
+      await DB.prepare("UPDATE jobs SET status='error',error_message='Files missing from storage' WHERE id=?").bind(jobId).run();
       return fail('Files not found', 404);
     }
 
     const [briefBuf, assignBuf] = await Promise.all([briefObj.arrayBuffer(), assignObj.arrayBuffer()]);
-    const briefText  = await extractText(briefBuf,  job.brief_name,      edenKey);
-    const assignText = await extractText(assignBuf, job.assignment_name, edenKey);
 
-    if (!briefText.trim()||!assignText.trim()) {
-      const which = !briefText.trim()?'brief':'assignment';
-      await DB.prepare("UPDATE jobs SET status='error',error_message=? WHERE id=?").bind(`Could not extract text from ${which}`,jobId).run();
-      return fail(`Text extraction failed for ${which}`, 422);
+    // Try local text extraction
+    const isPdf = (n: string) => n.toLowerCase().endsWith('.pdf');
+    const isDocx = (n: string) => n.toLowerCase().endsWith('.docx');
+
+    let raw: string;
+
+    if (isDocx(job.brief_name) && isDocx(job.assignment_name)) {
+      // Both DOCX — extract locally and do one chat call
+      const briefText  = await extractDocxText(briefBuf);
+      const assignText = await extractDocxText(assignBuf);
+      let refText: string|undefined;
+      if (job.ref_guide_name) {
+        const refObj = await FILES_BUCKET.get(`${jobId}/referencing/${job.ref_guide_name}`);
+        if (refObj) refText = await extractDocxText(await refObj.arrayBuffer());
+      }
+      raw = await gradeFromText(briefText, assignText, refText, job.model, (env as any).EDEN_AI_KEY);
+    } else if (isPdf(job.brief_name) || isPdf(job.assignment_name)) {
+      // At least one PDF — try local extraction first
+      const briefText  = isPdf(job.brief_name)  ? await extractPdfTextLocal(briefBuf)  : await extractDocxText(briefBuf);
+      const assignText = isPdf(job.assignment_name) ? await extractPdfTextLocal(assignBuf) : await extractDocxText(assignBuf);
+
+      if (briefText.length > 200 && assignText.length > 200) {
+        // Local extraction worked
+        let refText: string|undefined;
+        if (job.ref_guide_name) {
+          const refObj = await FILES_BUCKET.get(`${jobId}/referencing/${job.ref_guide_name}`);
+          if (refObj) {
+            const rb = await refObj.arrayBuffer();
+            refText = isPdf(job.ref_guide_name) ? await extractPdfTextLocal(rb) : await extractDocxText(rb);
+          }
+        }
+        raw = await gradeFromText(briefText, assignText, refText, job.model, (env as any).EDEN_AI_KEY);
+      } else {
+        // Fall back to file-based grading (model reads PDFs directly)
+        raw = await gradeFromFiles(briefBuf, job.brief_name, assignBuf, job.assignment_name, job.model, (env as any).EDEN_AI_KEY);
+      }
+    } else {
+      return fail('Unsupported file type. Please upload PDF or DOCX files.', 422);
     }
 
-    let refText: string|undefined;
-    if (job.ref_guide_name) {
-      const refObj = await FILES_BUCKET.get(`${jobId}/referencing/${job.ref_guide_name}`);
-      if (refObj) refText = await extractText(await refObj.arrayBuffer(), job.ref_guide_name, edenKey);
-    }
-
-    const raw = await callEdenAI(buildPrompt(briefText, assignText, refText), job.model, edenKey);
-
+    // Parse JSON response
     let result: Record<string,unknown>;
     try {
       const m = raw.match(/\{[\s\S]*\}/);
       result = JSON.parse(m?m[0]:raw);
     } catch {
-      await DB.prepare("UPDATE jobs SET status='error',error_message='AI returned invalid JSON' WHERE id=?").bind(jobId).run();
+      await DB.prepare("UPDATE jobs SET status='error',error_message='AI returned invalid JSON. Please try again.' WHERE id=?").bind(jobId).run();
       return fail('AI returned invalid JSON', 500);
     }
 
